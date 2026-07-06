@@ -7,7 +7,7 @@ Unlike standard implementations, VoltaSplat is designed as a bare-metal educatio
 ## Prerequisites
 * CUDA Toolkit (11.8 or higher)
 * PyTorch (2.0 or higher)
-* Ninja build system (`pip install ninja`)
+* Ninja build system (`uv pip install ninja`)
 
 ## Installation
 VoltaSplat uses `setup.py` to compile custom CUDA kernels via PyTorch's extension API.
@@ -17,7 +17,7 @@ git clone [https://github.com/yourusername/VoltaSplat.git](https://github.com/yo
 cd VoltaSplat
 
 # Install the extension in editable mode
-pip install -e .
+uv pip install -e . --no-build-isolation --system
 ```
 
 ## Quick Start
