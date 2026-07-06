@@ -1,0 +1,12 @@
+# ninja log v7
+7	11705	8050354992037611	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/bindings.obj	9dfe7d60c84ea10a
+25	2662	8050356018385518	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/backward.obj	38505e17a60897a3
+37	2749	8050356018493379	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/forward.obj	6628c165c342e76e
+50	2755	8050356018630130	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/sort.obj	bd24bf9c9a1aa33
+31	12086	8050356018436947	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/bindings.obj	eb06bb1e65f052b9
+2	11804	8050357171090438	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/bindings.obj	be9a6e385cbedc63
+31	3159	8050359105431837	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/sort.obj	4ad5c082fe9d306b
+2	3160	8050359105139696	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/backward.obj	8d2b3090c6e35bda
+17	3160	8050359105277857	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/forward.obj	35c3e14a15eee842
+10	13627	8050359105212309	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/bindings.obj	be9a6e385cbedc63
+24	98137	8050359105350129	C:/PROFESSIONAL/Development/AI-HPC/VoltaSplat/csrc/rasterizer.obj	556ec1f722cb549e
