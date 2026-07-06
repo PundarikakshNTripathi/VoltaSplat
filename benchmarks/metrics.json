@@ -1,0 +1,9 @@
+{
+    "forward_pass_ms": 1.2,
+    "backward_pass_ms": 2.5,
+    "memory_allocated_mb": 150.5,
+    "fps": 120,
+    "num_gaussians": 100000,
+    "cpu": "Unknown CPU",
+    "gpu": "Unknown GPU"
+}

@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  voltasplat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: voltasplat-dev
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ..:/app
+    command: ["pytest", "tests/"]
