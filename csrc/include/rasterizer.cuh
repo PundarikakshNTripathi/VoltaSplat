@@ -47,6 +47,23 @@ __global__ void render_tiles_kernel(
     float* __restrict__ out_transmittance,
     int* __restrict__ final_index);
 
+__global__ void render_tiles_backward_kernel(
+    const int W, const int H,
+    const int grid_X, const int grid_Y,
+    const uint2* __restrict__ tile_offsets,
+    const uint32_t* __restrict__ sorted_indices,
+    const float* __restrict__ means2d,
+    const float* __restrict__ conics,
+    const float* __restrict__ colors,
+    const float* __restrict__ opacities,
+    const float* __restrict__ out_transmittance,
+    const int* __restrict__ final_index,
+    const float* __restrict__ grad_out_color,
+    float* __restrict__ grad_means2d,
+    float* __restrict__ grad_conics,
+    float* __restrict__ grad_colors,
+    float* __restrict__ grad_opacities);
+
 void sort_gaussians(
     uint64_t* d_keys_in,
     uint64_t* d_keys_out,
