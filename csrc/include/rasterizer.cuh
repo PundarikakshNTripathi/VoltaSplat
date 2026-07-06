@@ -34,6 +34,19 @@ __global__ void generate_keys_kernel(
     uint64_t* __restrict__ sort_keys,
     uint32_t* __restrict__ sort_values);
 
+__global__ void render_tiles_kernel(
+    const int W, const int H,
+    const int grid_X, const int grid_Y,
+    const uint2* __restrict__ tile_offsets,
+    const uint32_t* __restrict__ sorted_indices,
+    const float* __restrict__ means2d,
+    const float* __restrict__ conics,
+    const float* __restrict__ colors,
+    const float* __restrict__ opacities,
+    float* __restrict__ out_color,
+    float* __restrict__ out_transmittance,
+    int* __restrict__ final_index);
+
 void sort_gaussians(
     uint64_t* d_keys_in,
     uint64_t* d_keys_out,

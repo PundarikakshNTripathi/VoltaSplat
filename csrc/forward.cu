@@ -154,3 +154,113 @@ __global__ void preprocess_gaussians_kernel(
     depths[idx] = t_z;
     radii[idx] = (int)my_radius;
 }
+
+__global__ void render_tiles_kernel(
+    const int W, const int H,
+    const int grid_X, const int grid_Y,
+    const uint2* __restrict__ tile_offsets, // start and end indices in sorted arrays
+    const uint32_t* __restrict__ sorted_indices,
+    const float* __restrict__ means2d,
+    const float* __restrict__ conics,
+    const float* __restrict__ colors,
+    const float* __restrict__ opacities,
+    float* __restrict__ out_color,
+    float* __restrict__ out_transmittance,
+    int* __restrict__ final_index)
+{
+    // Block maps to a 16x16 tile
+    int tile_x = blockIdx.x;
+    int tile_y = blockIdx.y;
+    int pix_x = tile_x * 16 + threadIdx.x;
+    int pix_y = tile_y * 16 + threadIdx.y;
+    
+    // Each thread processes one pixel
+    bool inside = (pix_x < W && pix_y < H);
+    
+    // Read tile offsets for this block
+    uint2 range = tile_offsets[tile_y * grid_X + tile_x];
+    uint32_t start_idx = range.x;
+    uint32_t end_idx = range.y;
+    
+    // Shared memory for collaborative loading
+    __shared__ float3 collected_means[256];
+    __shared__ float3 collected_conics[256];
+    __shared__ float3 collected_colors[256];
+    __shared__ float collected_opacities[256];
+    
+    float T = 1.0f;
+    float C[3] = {0.0f, 0.0f, 0.0f};
+    int last_contributor = 0;
+    
+    int num_batches = (end_idx - start_idx + 255) / 256;
+    int thread_linear_id = threadIdx.y * 16 + threadIdx.x;
+    
+    for (int b = 0; b < num_batches; ++b) {
+        int batch_start = start_idx + b * 256;
+        int fetch_idx = batch_start + thread_linear_id;
+        
+        // Collaborative load
+        if (fetch_idx < end_idx) {
+            uint32_t g_idx = sorted_indices[fetch_idx];
+            collected_means[thread_linear_id] = make_float3(means2d[g_idx*2+0], means2d[g_idx*2+1], 0.0f);
+            collected_conics[thread_linear_id] = make_float3(conics[g_idx*3+0], conics[g_idx*3+1], conics[g_idx*3+2]);
+            collected_colors[thread_linear_id] = make_float3(colors[g_idx*3+0], colors[g_idx*3+1], colors[g_idx*3+2]);
+            collected_opacities[thread_linear_id] = opacities[g_idx];
+        }
+        
+        // Synchronize before reading shared memory
+        __syncthreads();
+        
+        int num_in_batch = min(256, end_idx - batch_start);
+        
+        if (inside) {
+            for (int i = 0; i < num_in_batch; ++i) {
+                if (T < 0.0001f) break; // early stopping
+                
+                float3 mean = collected_means[i];
+                float3 conic = collected_conics[i];
+                float opacity = collected_opacities[i];
+                float3 color = collected_colors[i];
+                
+                float dx = (float)pix_x - mean.x;
+                float dy = (float)pix_y - mean.y;
+                
+                // Conic is a, b, c (where b is -cov_xy / det)
+                // power = -0.5 * (a*dx*dx + 2*b*dx*dy + c*dy*dy)
+                float power = -0.5f * (conic.x * dx * dx + 2.0f * conic.y * dx * dy + conic.z * dy * dy);
+                if (power > 0.0f) continue;
+                
+                float alpha = min(0.99f, opacity * expf(power));
+                if (alpha < 1.0f / 255.0f) continue;
+                
+                float weight = alpha * T;
+                C[0] += weight * color.x;
+                C[1] += weight * color.y;
+                C[2] += weight * color.z;
+                
+                T *= (1.0f - alpha);
+                last_contributor = batch_start + i;
+            }
+        }
+        
+        // Synchronize before overwriting shared memory in the next iteration
+        __syncthreads();
+        
+        // Thread-wide stop if all pixels in the block are saturated
+        // (A fully optimized version would use __syncthreads_count or __any_sync, but this works for basic requirement)
+        if (inside && T < 0.0001f) {
+            // We cannot just break here without causing thread divergence at __syncthreads!
+            // Actually, we must ensure all threads reach __syncthreads(). 
+            // So we just set a flag and stop accumulating.
+        }
+    }
+    
+    if (inside) {
+        int pix_idx = pix_y * W + pix_x;
+        out_color[pix_idx*3+0] = C[0];
+        out_color[pix_idx*3+1] = C[1];
+        out_color[pix_idx*3+2] = C[2];
+        out_transmittance[pix_idx] = T;
+        final_index[pix_idx] = last_contributor;
+    }
+}
