@@ -1,4 +1,5 @@
 #include <torch/extension.h>
+#include <vector>
 #include "rasterizer.cuh"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

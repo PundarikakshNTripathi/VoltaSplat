@@ -3,8 +3,30 @@
 #include <cuda_runtime.h>
 #include <cstdint>
 
-void rasterize_forward(torch::Tensor dummy);
-void rasterize_backward(torch::Tensor dummy);
+#include <vector>
+
+std::vector<torch::Tensor> rasterize_forward(
+    torch::Tensor means3d,
+    torch::Tensor cov3d,
+    torch::Tensor colors,
+    torch::Tensor opacities,
+    torch::Tensor viewmatrix,
+    torch::Tensor projmatrix,
+    float focal_x, float focal_y,
+    float tan_fovx, float tan_fovy,
+    int W, int H);
+
+std::vector<torch::Tensor> rasterize_backward(
+    int W, int H,
+    torch::Tensor tile_offsets,
+    torch::Tensor sorted_indices,
+    torch::Tensor means2d,
+    torch::Tensor conics,
+    torch::Tensor colors,
+    torch::Tensor opacities,
+    torch::Tensor out_transmittance,
+    torch::Tensor final_index,
+    torch::Tensor grad_out_color);
 
 __global__ void preprocess_gaussians_kernel(
     const int num_gaussians,

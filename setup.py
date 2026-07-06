@@ -3,7 +3,7 @@ cuda_dir = r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3"
 os.environ["CUDA_HOME"] = cuda_dir
 os.environ["CUDA_PATH"] = cuda_dir
 os.environ["NVCC"] = cuda_dir + r"\bin\nvcc.exe"
-os.environ["TORCH_CUDA_ARCH_LIST"] = "8.0;8.6;8.9;9.0"
+os.environ["TORCH_CUDA_ARCH_LIST"] = "8.6;9.0+PTX"
 
 import torch
 import torch.utils.cpp_extension
