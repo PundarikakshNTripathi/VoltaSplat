@@ -1,0 +1,32 @@
+name: VoltaSplat CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    runs-on: self-hosted
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Setup Environment and Build via Makefile
+      run: |
+        make setup
+        make build
+        
+    - name: Execute Tests
+      run: |
+        make test
+        
+    - name: Execute Benchmarks
+      run: |
+        make benchmark
