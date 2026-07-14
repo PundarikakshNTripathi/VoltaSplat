@@ -18,6 +18,7 @@ all: setup build test benchmark
 setup:
 	@echo "Setting up uv virtual environment and PyTorch dependencies..."
 	uv venv
+	uv pip install setuptools wheel
 	uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 	uv pip install pytest matplotlib
 
