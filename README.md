@@ -82,28 +82,9 @@ To train the Gaussians, we compute partial derivatives of the final color with r
 
 ## Engine Architecture & Memory Flow
 
-```mermaid
-graph TD
-    classDef core fill:#4285F4,stroke:#fff,color:#fff;
-    classDef cuda fill:#76B900,stroke:#fff,color:#fff;
-    classDef mem fill:#EA4335,stroke:#fff,color:#fff;
-    
-    A[PyTorch Forward Pass]:::core --> B[C++ ATen Wrapper]:::core
-    
-    subgraph CUDA Pipeline
-        B --> C[preprocess_gaussians_kernel]:::cuda
-        C --> D{cub::DeviceRadixSort}:::cuda
-        D --> E[identify_tile_ranges]:::cuda
-        E --> F[render_tiles_kernel]:::cuda
-    end
-    
-    F -.->|Caches final_index| G[(Global VRAM)]:::mem
-    F -.->|Caches transmittance| G
-    
-    H[PyTorch Backward Pass]:::core --> I[render_tiles_backward]:::cuda
-    G -.-> I
-    I --> J[atomicAdd Gradients]:::cuda
-```
+<div align="center">
+  <img src="docs/architecture.svg" alt="VoltaSplat Memory Flow & Architecture Diagram" width="100%" />
+</div>
 
 - **Tile-based Processing**: The screen is segmented into 16x16 pixel tiles mapping to individual CUDA thread blocks.
 - **Shared Memory**: Threads collaboratively load Gaussian attributes into `__shared__` memory prior to blending.

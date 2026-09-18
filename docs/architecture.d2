@@ -1,0 +1,85 @@
+direction: right
+grid-columns: 2
+
+# Global Cream Background
+style.fill: "#fffdd0"
+style.stroke: transparent
+
+classes: {
+  pytorch: {
+    style: {
+      fill: "#a8d0e6"
+      border-radius: 8
+      shadow: true
+    }
+  }
+  cuda_kernel: {
+    style: {
+      fill: "#b5e7a0"
+      border-radius: 8
+      shadow: true
+    }
+  }
+  cuda_sort: {
+    shape: diamond
+    style: {
+      fill: "#f8e9a1"
+      shadow: true
+    }
+  }
+  vram: {
+    shape: cylinder
+    style: {
+      fill: "#f76c6c"
+      shadow: true
+    }
+  }
+  group: {
+    style: {
+      fill: "#f8f9fa"
+      stroke-dash: 5
+      border-radius: 10
+      shadow: true
+    }
+  }
+}
+
+"PyTorch Context": {
+  class: group
+  direction: down
+  
+  "PyTorch Forward Pass": { class: pytorch }
+  "PyTorch Backward Pass": { class: pytorch }
+  "Global VRAM": { class: vram }
+}
+
+"CUDA Pipeline": {
+  class: group
+  direction: down
+  
+  "C++ ATen Wrapper": { class: pytorch }
+  "preprocess_gaussians_kernel": { class: cuda_kernel }
+  "cub::DeviceRadixSort": { class: cuda_sort }
+  "identify_tile_ranges": { class: cuda_kernel }
+  "render_tiles_kernel": { class: cuda_kernel }
+  "render_tiles_backward": { class: cuda_kernel }
+  "atomicAdd Gradients": { class: cuda_kernel }
+}
+
+# Forward Pass Connections
+"PyTorch Context"."PyTorch Forward Pass" -> "CUDA Pipeline"."C++ ATen Wrapper"
+
+"CUDA Pipeline"."C++ ATen Wrapper" -> "CUDA Pipeline"."preprocess_gaussians_kernel"
+"CUDA Pipeline"."preprocess_gaussians_kernel" -> "CUDA Pipeline"."cub::DeviceRadixSort"
+"CUDA Pipeline"."cub::DeviceRadixSort" -> "CUDA Pipeline"."identify_tile_ranges"
+"CUDA Pipeline"."identify_tile_ranges" -> "CUDA Pipeline"."render_tiles_kernel"
+
+# Global Memory Caching
+"CUDA Pipeline"."render_tiles_kernel" -> "PyTorch Context"."Global VRAM": "Caches final_index" { style.animated: true }
+"CUDA Pipeline"."render_tiles_kernel" -> "PyTorch Context"."Global VRAM": "Caches transmittance" { style.animated: true }
+
+# Backward Pass Connections
+"PyTorch Context"."PyTorch Backward Pass" -> "CUDA Pipeline"."render_tiles_backward"
+"PyTorch Context"."Global VRAM" -> "CUDA Pipeline"."render_tiles_backward" { style.animated: true }
+
+"CUDA Pipeline"."render_tiles_backward" -> "CUDA Pipeline"."atomicAdd Gradients"
