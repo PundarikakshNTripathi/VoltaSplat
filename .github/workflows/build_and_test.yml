@@ -48,5 +48,5 @@ jobs:
         run: python3 -m pip install -e . --no-build-isolation
       - name: Import check and test run (GPU tests skip without a device)
         run: |
-          python3 -c "import voltasplat._C as c; print('loaded', c.__file__)"
+          python3 -c "import torch, voltasplat._C as c; print('loaded', c.__file__)"
           python3 -m pytest tests -v
