@@ -1,34 +1,52 @@
 {
-    "gaussians_tested": [
-        10000,
-        50000,
-        100000,
-        500000,
-        1000000
-    ],
-    "forward_times_ms": [
-        0.8,
-        1.4,
-        2.1,
-        8.5,
-        16.2
-    ],
-    "backward_times_ms": [
-        1.2,
-        2.9,
-        4.8,
-        22.1,
-        45.3
-    ],
-    "memory_mb": [
-        24.5,
-        68.2,
-        115.4,
-        480.1,
-        950.5
-    ],
-    "peak_fps": 476.19047619047615,
-    "target_resolution": "800x800",
-    "cpu": "Intel(R) Core(TM) i9-13900HX",
-    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU"
+  "meta": {
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "python": "3.12.12",
+    "W": 800,
+    "H": 800
+  },
+  "results": [
+    {
+      "n": 10000,
+      "forward_ms": 0.5827839970588684,
+      "forward_backward_ms": 2.7889280319213867,
+      "peak_extra_mb": 13.90673828125,
+      "gaussian_tile_pairs": 68825,
+      "fps_forward": 1715.9016119980859
+    },
+    {
+      "n": 50000,
+      "forward_ms": 1.049631953239441,
+      "forward_backward_ms": 8.318431854248047,
+      "peak_extra_mb": 21.54931640625,
+      "gaussian_tile_pairs": 343731,
+      "fps_forward": 952.7148986973351
+    },
+    {
+      "n": 100000,
+      "forward_ms": 1.6331520080566406,
+      "forward_backward_ms": 14.653056144714355,
+      "peak_extra_mb": 33.75439453125,
+      "gaussian_tile_pairs": 688575,
+      "fps_forward": 612.3128741640797
+    },
+    {
+      "n": 500000,
+      "forward_ms": 3.872607946395874,
+      "forward_backward_ms": 21.9531192779541,
+      "peak_extra_mb": 172.53466796875,
+      "gaussian_tile_pairs": 3441517,
+      "fps_forward": 258.223918827278
+    },
+    {
+      "n": 1000000,
+      "forward_ms": 6.081823825836182,
+      "forward_backward_ms": 27.253568649291992,
+      "peak_extra_mb": 339.87353515625,
+      "gaussian_tile_pairs": 6874036,
+      "fps_forward": 164.42436161203852
+    }
+  ]
 }

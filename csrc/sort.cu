@@ -1,80 +1,35 @@
-#include "rasterizer.cuh"
-#include <cub/cub.cuh>
-#include <cub/device/device_radix_sort.cuh>
+// Gaussian-to-tile binning: every Gaussian is duplicated once per 16x16 tile its bounding square overlaps,
+// keyed by (tile id << 32 | depth bits) so a single global radix sort yields, per tile, a depth-ordered list.
+#include "kernels.cuh"
 
-__global__ void generate_keys_kernel(
-    const int num_gaussians,
-    const float* __restrict__ depths,
-    const int* __restrict__ radii,
-    const float* __restrict__ means2d,
-    const int grid_X,
-    uint64_t* __restrict__ sort_keys,
-    uint32_t* __restrict__ sort_values)
+__global__ void duplicate_with_keys_kernel(
+    int num_gaussians, const float* __restrict__ depths, const int* __restrict__ radii,
+    const int* __restrict__ rects, const int* __restrict__ offsets_inclusive, int grid_X,
+    uint64_t* __restrict__ keys, uint32_t* __restrict__ values)
 {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_gaussians) return;
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_gaussians || radii[idx] <= 0) return;
 
-    // Skip if culled
-    if (radii[idx] <= 0) {
-        // Place culled Gaussians at the end by assigning max key
-        sort_keys[idx] = 0xFFFFFFFFFFFFFFFF;
-        sort_values[idx] = idx;
-        return;
+    int out = (idx == 0) ? 0 : offsets_inclusive[idx - 1];
+    // Positive IEEE-754 floats order like their bit patterns, so the depth bits sort correctly as integers.
+    const uint32_t depth_bits = __float_as_uint(depths[idx]);
+    const int minx = rects[idx * 4 + 0], miny = rects[idx * 4 + 1];
+    const int maxx = rects[idx * 4 + 2], maxy = rects[idx * 4 + 3];
+    for (int y = miny; y < maxy; ++y) {
+        for (int x = minx; x < maxx; ++x) {
+            keys[out] = (static_cast<uint64_t>(y * grid_X + x) << 32) | depth_bits;
+            values[out] = static_cast<uint32_t>(idx);
+            ++out;
+        }
     }
-
-    float p_x = means2d[idx*2+0];
-    float p_y = means2d[idx*2+1];
-    
-    // Assign to a single tile based on center for now
-    // In full 3DGS, a Gaussian can touch multiple tiles and requires duplication.
-    uint32_t tile_x = min(max((int)(p_x / 16.0f), 0), grid_X - 1);
-    uint32_t tile_y = max((int)(p_y / 16.0f), 0);
-    uint32_t tile_id = tile_y * grid_X + tile_x;
-
-    float depth = depths[idx];
-    uint32_t depth_int = *reinterpret_cast<uint32_t*>(&depth);
-    
-    // Key: Top 32 bits = Tile ID, Bottom 32 bits = Depth
-    uint64_t sort_key = (static_cast<uint64_t>(tile_id) << 32) | depth_int;
-    
-    sort_keys[idx] = sort_key;
-    sort_values[idx] = idx;
 }
 
-void sort_gaussians(
-    uint64_t* d_keys_in,
-    uint64_t* d_keys_out,
-    uint32_t* d_values_in,
-    uint32_t* d_values_out,
-    int num_items,
-    cudaStream_t stream)
+// After sorting, the entries of one tile are contiguous: record [start, end) for each tile.
+__global__ void identify_tile_ranges_kernel(int num_items, const uint64_t* __restrict__ sorted_keys, int* __restrict__ tile_ranges)
 {
-    void* d_temp_storage = nullptr;
-    size_t temp_storage_bytes = 0;
-
-    // Pass 1: query temp storage size
-    cub::DeviceRadixSort::SortPairs(
-        d_temp_storage, temp_storage_bytes,
-        d_keys_in, d_keys_out,
-        d_values_in, d_values_out,
-        num_items,
-        0, 64,
-        stream
-    );
-
-    // Allocate temp storage
-    cudaMalloc(&d_temp_storage, temp_storage_bytes);
-
-    // Pass 2: perform sort
-    cub::DeviceRadixSort::SortPairs(
-        d_temp_storage, temp_storage_bytes,
-        d_keys_in, d_keys_out,
-        d_values_in, d_values_out,
-        num_items,
-        0, 64,
-        stream
-    );
-
-    // Cleanup
-    cudaFree(d_temp_storage);
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= num_items) return;
+    const uint32_t tile = static_cast<uint32_t>(sorted_keys[i] >> 32);
+    if (i == 0 || tile != static_cast<uint32_t>(sorted_keys[i - 1] >> 32)) tile_ranges[tile * 2 + 0] = i;
+    if (i == num_items - 1 || tile != static_cast<uint32_t>(sorted_keys[i + 1] >> 32)) tile_ranges[tile * 2 + 1] = i + 1;
 }

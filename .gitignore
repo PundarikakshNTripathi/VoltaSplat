@@ -1,1 +1,20 @@
-# Add any valid ignored items here
+# Build outputs
+build/
+*.egg-info/
+*.pyd
+*.so
+*.obj
+*.exp
+*.lib
+*.o
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Editors / OS
+.vs/
+.vscode/

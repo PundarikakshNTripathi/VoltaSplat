@@ -1,6 +1,5 @@
 #include <torch/extension.h>
-#include <vector>
-#include "rasterizer.cuh"
+#include "rasterizer.h"
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rasterize_forward", &rasterize_forward, "VoltaSplat forward rasterization");

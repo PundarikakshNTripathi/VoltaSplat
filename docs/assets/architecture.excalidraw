@@ -1,0 +1,705 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "excalidraw-cli",
+  "elements": [
+    {
+      "id": "title",
+      "type": "text",
+      "x": 20,
+      "y": 8,
+      "strokeColor": "#212529",
+      "roughness": 0,
+      "text": "VoltaSplat: differentiable tile-based Gaussian rasterizer",
+      "fontSize": 30,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "zp",
+      "type": "rectangle",
+      "x": 10,
+      "y": 70,
+      "width": 370,
+      "height": 700,
+      "backgroundColor": "#f1f3f5",
+      "strokeColor": "#868e96",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 55,
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "zp_t",
+      "type": "text",
+      "x": 28,
+      "y": 82,
+      "strokeColor": "#868e96",
+      "roughness": 0,
+      "text": "PyTorch / C++ host",
+      "fontSize": 22,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "zf",
+      "type": "rectangle",
+      "x": 400,
+      "y": 70,
+      "width": 1500,
+      "height": 310,
+      "backgroundColor": "#d0ebff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 55,
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "zf_t",
+      "type": "text",
+      "x": 418,
+      "y": 82,
+      "strokeColor": "#1971c2",
+      "roughness": 0,
+      "text": "Forward (CUDA)",
+      "fontSize": 22,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "zb",
+      "type": "rectangle",
+      "x": 400,
+      "y": 410,
+      "width": 1500,
+      "height": 360,
+      "backgroundColor": "#ffe8cc",
+      "strokeColor": "#e8590c",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "opacity": 55,
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "zb_t",
+      "type": "text",
+      "x": 418,
+      "y": 422,
+      "strokeColor": "#e8590c",
+      "roughness": 0,
+      "text": "Backward (hand-derived, checked against autograd)",
+      "fontSize": 22,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "py",
+      "type": "rectangle",
+      "x": 30,
+      "y": 130,
+      "width": 330,
+      "height": 120,
+      "backgroundColor": "#f1f3f5",
+      "strokeColor": "#868e96",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "autograd.Function\nrasterize(means3d, cov3d,\ncolors, opacities, camera)"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "cpp",
+      "type": "rectangle",
+      "x": 30,
+      "y": 290,
+      "width": 330,
+      "height": 110,
+      "backgroundColor": "#f1f3f5",
+      "strokeColor": "#868e96",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "rasterizer.cpp\non torch's CUDA stream,\ncumsum of tile counts"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "tst",
+      "type": "rectangle",
+      "x": 30,
+      "y": 450,
+      "width": 330,
+      "height": 140,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "Tests vs PyTorch reference\nfwd diff 1e-7, grads 1e-6\nfloat64 gradcheck, fitting"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "fit",
+      "type": "rectangle",
+      "x": 30,
+      "y": 620,
+      "width": 330,
+      "height": 120,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "fit_image.py\n4,000 Gaussians\n11 dB -> 31 dB PSNR"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "pre",
+      "type": "rectangle",
+      "x": 420,
+      "y": 135,
+      "width": 300,
+      "height": 190,
+      "backgroundColor": "#d0ebff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "preprocess kernel\nEWA: J W S W^T J^T + 0.3 I\nconic, 3-sigma radius,\ntile rectangle"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "dup",
+      "type": "rectangle",
+      "x": 760,
+      "y": 135,
+      "width": 280,
+      "height": 190,
+      "backgroundColor": "#d0ebff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "duplicate with keys\none (tile << 32 | depth)\nkey per overlapped tile"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "srt",
+      "type": "rectangle",
+      "x": 1080,
+      "y": 135,
+      "width": 240,
+      "height": 190,
+      "backgroundColor": "#f3d9fa",
+      "strokeColor": "#9c36b5",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "CUB radix sort\nby (tile, depth)\nstable"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "rng",
+      "type": "rectangle",
+      "x": 1360,
+      "y": 135,
+      "width": 200,
+      "height": 190,
+      "backgroundColor": "#c5f6fa",
+      "strokeColor": "#0c8599",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "per-tile\nranges\n[start, end)"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "rnd",
+      "type": "rectangle",
+      "x": 1600,
+      "y": 135,
+      "width": 270,
+      "height": 190,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "render tiles\n16x16 block, 256-Gaussian\nshared-mem batches,\nalpha blend, T < 1e-4"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "rb",
+      "type": "rectangle",
+      "x": 1520,
+      "y": 470,
+      "width": 350,
+      "height": 200,
+      "backgroundColor": "#ffe8cc",
+      "strokeColor": "#e8590c",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "render backward\nreverse traversal\nT = T / (1 - alpha)\natomicAdd: d mean2D,\nd conic, d color, d opacity"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "pb",
+      "type": "rectangle",
+      "x": 1030,
+      "y": 470,
+      "width": 420,
+      "height": 200,
+      "backgroundColor": "#ffe8cc",
+      "strokeColor": "#e8590c",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "preprocess backward\nd conic -> d Sigma2 -> d cov3D\nd T -> d J -> d view pos\n(frustum clamp) -> d mean3D"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "out",
+      "type": "rectangle",
+      "x": 450,
+      "y": 500,
+      "width": 520,
+      "height": 140,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "label": {
+        "text": "Gradients to PyTorch\nmeans3D, cov3D, colors, opacities"
+      },
+      "roundness": {
+        "type": 3
+      },
+      "fillStyle": "solid",
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1
+    },
+    {
+      "id": "mv1roh6a3zooqkxhqox",
+      "type": "arrow",
+      "x": 195,
+      "y": 258,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          24
+        ]
+      ],
+      "startBinding": {
+        "elementId": "py",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "cpp",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6ak8ziq8phqe",
+      "type": "arrow",
+      "x": 367.6484336655659,
+      "y": 292.05448034255977,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          44.70313266886819,
+          -13.708960685119564
+        ]
+      ],
+      "startBinding": {
+        "elementId": "cpp",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "pre",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6a0xpn1mt7kj9m",
+      "type": "arrow",
+      "x": 728,
+      "y": 230,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          24,
+          2.842170943040401e-14
+        ]
+      ],
+      "startBinding": {
+        "elementId": "pre",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "dup",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6apmhx250umm",
+      "type": "arrow",
+      "x": 1048,
+      "y": 230,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          24,
+          2.842170943040401e-14
+        ]
+      ],
+      "startBinding": {
+        "elementId": "dup",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "srt",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6aj0q2lq168oc",
+      "type": "arrow",
+      "x": 1328,
+      "y": 230,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          24,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "srt",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "rng",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6arsul70wkbv",
+      "type": "arrow",
+      "x": 1568,
+      "y": 230,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.338Z",
+      "updatedAt": "2026-10-10T02:20:20.338Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          24,
+          2.842170943040401e-14
+        ]
+      ],
+      "startBinding": {
+        "elementId": "rng",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "rnd",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6bmonlfoypj0p",
+      "type": "arrow",
+      "x": 1722.8887994312254,
+      "y": 332.945204834583,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "dashed",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.339Z",
+      "updatedAt": "2026-10-10T02:20:20.339Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -15.189363568333192,
+          129.10959033083395
+        ]
+      ],
+      "startBinding": {
+        "elementId": "rnd",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "rb",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6bzc9rd60jolm",
+      "type": "arrow",
+      "x": 1512,
+      "y": 570,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.339Z",
+      "updatedAt": "2026-10-10T02:20:20.339Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -54,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "rb",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "pb",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mv1roh6bvm1r7g2dyx",
+      "type": "arrow",
+      "x": 1022,
+      "y": 570,
+      "strokeColor": "#495057",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 0,
+      "endArrowhead": "arrow",
+      "elbowed": false,
+      "createdAt": "2026-10-10T02:20:20.339Z",
+      "updatedAt": "2026-10-10T02:20:20.339Z",
+      "version": 1,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -44,
+          0
+        ]
+      ],
+      "startBinding": {
+        "elementId": "pb",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "out",
+        "focus": 0,
+        "gap": 8
+      }
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  }
+}

@@ -1,158 +1,218 @@
-#include "rasterizer.cuh"
-#include <cuda_runtime.h>
+// Backward pass.
+//   render_tiles_backward_kernel : gradients of the compositing equation w.r.t. each Gaussian's 2D mean,
+//                                  conic, color and opacity (walks every tile back to front).
+//   preprocess_backward_kernel   : chain rule through the EWA projection to the 3D mean and 3D covariance.
+#include "kernels.cuh"
 
 __global__ void render_tiles_backward_kernel(
-    const int W, const int H,
-    const int grid_X, const int grid_Y,
-    const uint2* __restrict__ tile_offsets,
-    const uint32_t* __restrict__ sorted_indices,
-    const float* __restrict__ means2d,
-    const float* __restrict__ conics,
-    const float* __restrict__ colors,
-    const float* __restrict__ opacities,
-    const float* __restrict__ out_transmittance,
-    const int* __restrict__ final_index,
-    const float* __restrict__ grad_out_color,
-    float* __restrict__ grad_means2d,
-    float* __restrict__ grad_conics,
-    float* __restrict__ grad_colors,
+    int W, int H, int grid_X, const int* __restrict__ tile_ranges, const uint32_t* __restrict__ sorted_ids,
+    const float* __restrict__ means2d, const float* __restrict__ conics, const float* __restrict__ colors,
+    const float* __restrict__ opacities, const float* __restrict__ out_transmittance,
+    const int* __restrict__ contributors, const float* __restrict__ grad_out_color,
+    float* __restrict__ grad_means2d, float* __restrict__ grad_conics, float* __restrict__ grad_colors,
     float* __restrict__ grad_opacities)
 {
-    // Block maps to a 16x16 tile
-    int tile_x = blockIdx.x;
-    int tile_y = blockIdx.y;
-    int pix_x = tile_x * 16 + threadIdx.x;
-    int pix_y = tile_y * 16 + threadIdx.y;
-    
-    bool inside = (pix_x < W && pix_y < H);
-    int pix_idx = pix_y * W + pix_x;
-    
-    // Gradients from loss w.r.t the pixel color
-    float dL_dpix_r = 0.0f, dL_dpix_g = 0.0f, dL_dpix_b = 0.0f;
-    float final_T = 1.0f;
-    int last_idx = 0;
-    
+    const int pix_x = blockIdx.x * TILE + threadIdx.x;
+    const int pix_y = blockIdx.y * TILE + threadIdx.y;
+    const bool inside = (pix_x < W && pix_y < H);
+    const int p = pix_y * W + pix_x;
+
+    const int tile = blockIdx.y * grid_X + blockIdx.x;
+    const int start_idx = tile_ranges[tile * 2 + 0];
+
+    float dL_dpix[3] = {0.f, 0.f, 0.f};
+    float T = 1.0f;
+    int last = 0;  // exclusive end of this pixel's contributor range
     if (inside) {
-        dL_dpix_r = grad_out_color[pix_idx*3+0];
-        dL_dpix_g = grad_out_color[pix_idx*3+1];
-        dL_dpix_b = grad_out_color[pix_idx*3+2];
-        final_T = out_transmittance[pix_idx];
-        last_idx = final_index[pix_idx];
+        dL_dpix[0] = grad_out_color[p * 3 + 0];
+        dL_dpix[1] = grad_out_color[p * 3 + 1];
+        dL_dpix[2] = grad_out_color[p * 3 + 2];
+        T = out_transmittance[p];
+        last = contributors[p];
     }
-    
-    uint2 range = tile_offsets[tile_y * grid_X + tile_x];
-    uint32_t start_idx = range.x;
-    
-    // Collaborative max last_idx in this tile
-    __shared__ int max_last_idx;
-    if (threadIdx.x == 0 && threadIdx.y == 0) max_last_idx = 0;
+
+    // The block only needs to walk back from the furthest contributor of any of its pixels.
+    __shared__ int block_last;
+    if (threadIdx.x == 0 && threadIdx.y == 0) block_last = 0;
     __syncthreads();
-    
-    if (inside && last_idx > 0) {
-        atomicMax(&max_last_idx, last_idx);
-    }
+    atomicMax(&block_last, last);
     __syncthreads();
-    
-    int end_idx_block = max_last_idx;
-    
-    // Back-to-front batched traversal
-    int num_batches = (end_idx_block - start_idx + 255) / 256;
-    int thread_linear_id = threadIdx.y * 16 + threadIdx.x;
-    
-    float T = final_T;
-    float accum_rec_r = 0.0f;
-    float accum_rec_g = 0.0f;
-    float accum_rec_b = 0.0f;
-    
-    __shared__ float3 collected_means[256];
-    __shared__ float3 collected_conics[256];
-    __shared__ float3 collected_colors[256];
-    __shared__ float collected_opacities[256];
-    
+    const int end_idx = block_last;
+    if (end_idx <= start_idx) return;  // uniform across the block: nothing to differentiate
+
+    __shared__ float2 s_mean[BATCH];
+    __shared__ float3 s_conic[BATCH];
+    __shared__ float3 s_color[BATCH];
+    __shared__ float s_opacity[BATCH];
+    __shared__ uint32_t s_id[BATCH];
+
+    const int tid = threadIdx.y * TILE + threadIdx.x;
+    const int num_batches = (end_idx - start_idx + BATCH - 1) / BATCH;
+    float accum[3] = {0.f, 0.f, 0.f};  // color accumulated from Gaussians *behind* the current one
+
     for (int b = num_batches - 1; b >= 0; --b) {
-        int batch_start = start_idx + b * 256;
-        int fetch_idx = batch_start + thread_linear_id;
-        
-        if (fetch_idx <= end_idx_block && fetch_idx >= start_idx) {
-            uint32_t g_idx = sorted_indices[fetch_idx];
-            collected_means[thread_linear_id] = make_float3(means2d[g_idx*2+0], means2d[g_idx*2+1], 0.0f);
-            collected_conics[thread_linear_id] = make_float3(conics[g_idx*3+0], conics[g_idx*3+1], conics[g_idx*3+2]);
-            collected_colors[thread_linear_id] = make_float3(colors[g_idx*3+0], colors[g_idx*3+1], colors[g_idx*3+2]);
-            collected_opacities[thread_linear_id] = opacities[g_idx];
+        const int batch_start = start_idx + b * BATCH;
+        const int fetch = batch_start + tid;
+        if (fetch < end_idx) {
+            const uint32_t g = sorted_ids[fetch];
+            s_id[tid] = g;
+            s_mean[tid] = make_float2(means2d[g * 2 + 0], means2d[g * 2 + 1]);
+            s_conic[tid] = make_float3(conics[g * 3 + 0], conics[g * 3 + 1], conics[g * 3 + 2]);
+            s_color[tid] = make_float3(colors[g * 3 + 0], colors[g * 3 + 1], colors[g * 3 + 2]);
+            s_opacity[tid] = opacities[g];
         }
-        
         __syncthreads();
-        
-        int num_in_batch = min(256, end_idx_block - batch_start + 1);
-        
-        if (inside) {
-            for (int i = num_in_batch - 1; i >= 0; --i) {
-                int global_i = batch_start + i;
-                if (global_i > last_idx) continue;
-                if (global_i < start_idx) break;
-                
-                float3 mean = collected_means[i];
-                float3 conic = collected_conics[i];
-                float opacity = collected_opacities[i];
-                float3 color = collected_colors[i];
-                
-                float dx = (float)pix_x - mean.x;
-                float dy = (float)pix_y - mean.y;
-                
-                float power = -0.5f * (conic.x * dx * dx + 2.0f * conic.y * dx * dy + conic.z * dy * dy);
-                if (power > 0.0f) continue;
-                
-                float alpha = min(0.99f, opacity * expf(power));
-                if (alpha < 1.0f / 255.0f) continue;
-                
-                float T_before = T / (1.0f - alpha);
-                
-                float weight = alpha * T_before;
-                float dL_dci_r = dL_dpix_r * weight;
-                float dL_dci_g = dL_dpix_g * weight;
-                float dL_dci_b = dL_dpix_b * weight;
-                
-                float dL_dalpha = 
-                    dL_dpix_r * (color.x * T_before - accum_rec_r / (1.0f - alpha)) +
-                    dL_dpix_g * (color.y * T_before - accum_rec_g / (1.0f - alpha)) +
-                    dL_dpix_b * (color.z * T_before - accum_rec_b / (1.0f - alpha));
-                
-                accum_rec_r += color.x * weight;
-                accum_rec_g += color.y * weight;
-                accum_rec_b += color.z * weight;
-                
-                T = T_before;
-                
-                float dL_dopacity = dL_dalpha * expf(power);
-                float dL_dpower = dL_dalpha * alpha;
-                
-                float dL_da = dL_dpower * (-0.5f * dx * dx);
-                float dL_db = dL_dpower * (-1.0f * dx * dy);
-                float dL_dc = dL_dpower * (-0.5f * dy * dy);
-                
-                float dL_ddx = dL_dpower * (-conic.x * dx - conic.y * dy);
-                float dL_ddy = dL_dpower * (-conic.y * dx - conic.z * dy);
-                
-                float dL_dmean_x = -dL_ddx;
-                float dL_dmean_y = -dL_ddy;
-                
-                uint32_t g_idx = sorted_indices[global_i];
-                
-                atomicAdd(&grad_colors[g_idx*3+0], dL_dci_r);
-                atomicAdd(&grad_colors[g_idx*3+1], dL_dci_g);
-                atomicAdd(&grad_colors[g_idx*3+2], dL_dci_b);
-                
-                atomicAdd(&grad_opacities[g_idx], dL_dopacity);
-                
-                atomicAdd(&grad_conics[g_idx*3+0], dL_da);
-                atomicAdd(&grad_conics[g_idx*3+1], dL_db);
-                atomicAdd(&grad_conics[g_idx*3+2], dL_dc);
-                
-                atomicAdd(&grad_means2d[g_idx*2+0], dL_dmean_x);
-                atomicAdd(&grad_means2d[g_idx*2+1], dL_dmean_y);
-            }
+
+        const int n = min(BATCH, end_idx - batch_start);
+        for (int i = n - 1; inside && i >= 0; --i) {
+            if (batch_start + i >= last) continue;  // beyond this pixel's last contributor
+
+            const float dx = (float)pix_x - s_mean[i].x;
+            const float dy = (float)pix_y - s_mean[i].y;
+            const float3 con = s_conic[i];
+            const float power = -0.5f * (con.x * dx * dx + 2.0f * con.y * dx * dy + con.z * dy * dy);
+            if (power > 0.0f) continue;
+            const float G = expf(power);
+            const float raw_alpha = s_opacity[i] * G;
+            const float alpha = fminf(0.99f, raw_alpha);
+            if (alpha < 1.0f / 255.0f) continue;
+
+            T = T / (1.0f - alpha);  // transmittance in front of this Gaussian
+            const float weight = alpha * T;
+            const uint32_t g = s_id[i];
+            const float3 col = s_color[i];
+
+            atomicAdd(&grad_colors[g * 3 + 0], dL_dpix[0] * weight);
+            atomicAdd(&grad_colors[g * 3 + 1], dL_dpix[1] * weight);
+            atomicAdd(&grad_colors[g * 3 + 2], dL_dpix[2] * weight);
+
+            // d(pixel)/d(alpha_i) = c_i * T_i - (color of everything behind i) / (1 - alpha_i)
+            const float inv = 1.0f / (1.0f - alpha);
+            float dL_dalpha = dL_dpix[0] * (col.x * T - accum[0] * inv) +
+                              dL_dpix[1] * (col.y * T - accum[1] * inv) +
+                              dL_dpix[2] * (col.z * T - accum[2] * inv);
+            accum[0] += col.x * weight;
+            accum[1] += col.y * weight;
+            accum[2] += col.z * weight;
+
+            if (raw_alpha > 0.99f) continue;  // alpha was clamped: no gradient through opacity / geometry
+
+            const float dL_dpower = dL_dalpha * alpha;  // alpha = opacity * exp(power)
+            atomicAdd(&grad_opacities[g], dL_dalpha * G);
+            atomicAdd(&grad_conics[g * 3 + 0], dL_dpower * (-0.5f * dx * dx));
+            atomicAdd(&grad_conics[g * 3 + 1], dL_dpower * (-dx * dy));  // b appears twice in the quadratic form
+            atomicAdd(&grad_conics[g * 3 + 2], dL_dpower * (-0.5f * dy * dy));
+            atomicAdd(&grad_means2d[g * 2 + 0], dL_dpower * (con.x * dx + con.y * dy));
+            atomicAdd(&grad_means2d[g * 2 + 1], dL_dpower * (con.y * dx + con.z * dy));
         }
-        
         __syncthreads();
     }
+}
+
+// Backward of preprocess_gaussians_kernel: given dL/d(mean2d) and dL/d(conic), produce dL/d(mean3d) and dL/d(cov3d).
+//
+//   conic = inverse(Sigma2),  Sigma2 = T S T^T + 0.3 I,  T = J W (2x3),  mean2d = viewport(proj * mean3d)
+//   dSigma2 = -Q G_Q Q                       (Q = conic matrix, G_Q = dL/dQ with the off-diagonal split in two)
+//   dS      = sum_ij dSigma2_ij T_i^T T_j    -> grad_cov3d
+//   dT_i    = 2 sum_j dSigma2_ij (S T_j^T)   -> dJ -> d(view-space position) through the frustum clamp
+__global__ void preprocess_backward_kernel(
+    int num_gaussians, const float* __restrict__ means3d, const float* __restrict__ cov3d,
+    const float* __restrict__ V, const float* __restrict__ P, float focal_x, float focal_y,
+    float tan_fovx, float tan_fovy, int W, int H, const int* __restrict__ radii,
+    const float* __restrict__ conics, const float* __restrict__ grad_means2d, const float* __restrict__ grad_conics,
+    float* __restrict__ grad_means3d, float* __restrict__ grad_cov3d)
+{
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_gaussians || radii[idx] <= 0) return;
+
+    const float m[3] = {means3d[idx * 3 + 0], means3d[idx * 3 + 1], means3d[idx * 3 + 2]};
+    const float* c3 = &cov3d[idx * 6];
+
+    // ---- recompute the forward quantities --------------------------------------------------------
+    float t[3];
+    for (int r = 0; r < 3; ++r) t[r] = VS_MAT(V, r, 0) * m[0] + VS_MAT(V, r, 1) * m[1] + VS_MAT(V, r, 2) * m[2] + VS_MAT(V, r, 3);
+    const float limx = 1.3f * tan_fovx, limy = 1.3f * tan_fovy;
+    const float rx = t[0] / t[2], ry = t[1] / t[2];
+    const bool clamp_x = (rx < -limx || rx > limx), clamp_y = (ry < -limy || ry > limy);
+    const float sgn_x = rx < 0 ? -1.f : 1.f, sgn_y = ry < 0 ? -1.f : 1.f;
+    const float tx = clamp_x ? sgn_x * limx * t[2] : t[0];
+    const float ty = clamp_y ? sgn_y * limy * t[2] : t[1];
+    const float tz = t[2];
+    const float iz = 1.f / tz, iz2 = iz * iz, iz3 = iz2 * iz;
+
+    const float J[2][3] = {{focal_x * iz, 0.f, -focal_x * tx * iz2}, {0.f, focal_y * iz, -focal_y * ty * iz2}};
+    float T[2][3];
+    for (int i = 0; i < 2; ++i)
+        for (int j = 0; j < 3; ++j) T[i][j] = J[i][0] * VS_MAT(V, 0, j) + J[i][1] * VS_MAT(V, 1, j) + J[i][2] * VS_MAT(V, 2, j);
+    const float S[3][3] = {{c3[0], c3[3], c3[4]}, {c3[3], c3[1], c3[5]}, {c3[4], c3[5], c3[2]}};
+
+    // ---- dL/dSigma2 -------------------------------------------------------------------------------
+    const float qa = conics[idx * 3 + 0], qb = conics[idx * 3 + 1], qc = conics[idx * 3 + 2];
+    const float ga = grad_conics[idx * 3 + 0], gb = 0.5f * grad_conics[idx * 3 + 1], gc = grad_conics[idx * 3 + 2];
+    // M = G_Q Q
+    const float m00 = ga * qa + gb * qb, m01 = ga * qb + gb * qc;
+    const float m10 = gb * qa + gc * qb, m11 = gb * qb + gc * qc;
+    // dSigma2 = -Q M
+    const float d00 = -(qa * m00 + qb * m10), d01 = -(qa * m01 + qb * m11);
+    const float d10 = -(qb * m00 + qc * m10), d11 = -(qb * m01 + qc * m11);
+    const float dS2[2][2] = {{d00, 0.5f * (d01 + d10)}, {0.5f * (d01 + d10), d11}};
+
+    // ---- dL/dcov3d: dS = sum_ij dS2_ij * T_i^T T_j ---------------------------------------------------
+    float dS[3][3];
+    for (int p = 0; p < 3; ++p)
+        for (int q = 0; q < 3; ++q) {
+            float acc = 0.f;
+            for (int i = 0; i < 2; ++i)
+                for (int j = 0; j < 2; ++j) acc += dS2[i][j] * T[i][p] * T[j][q];
+            dS[p][q] = acc;
+        }
+    float* gc3 = &grad_cov3d[idx * 6];
+    gc3[0] = dS[0][0];
+    gc3[1] = dS[1][1];
+    gc3[2] = dS[2][2];
+    gc3[3] = dS[0][1] + dS[1][0];
+    gc3[4] = dS[0][2] + dS[2][0];
+    gc3[5] = dS[1][2] + dS[2][1];
+
+    // ---- dL/dT, dL/dJ ------------------------------------------------------------------------------
+    float dT[2][3];
+    for (int i = 0; i < 2; ++i)
+        for (int p = 0; p < 3; ++p) {
+            float acc = 0.f;
+            for (int j = 0; j < 2; ++j) {
+                float sT = S[p][0] * T[j][0] + S[p][1] * T[j][1] + S[p][2] * T[j][2];  // (S T_j^T)_p
+                acc += dS2[i][j] * sT;
+            }
+            dT[i][p] = 2.f * acc;
+        }
+    float dJ[2][3];
+    for (int i = 0; i < 2; ++i)
+        for (int k = 0; k < 3; ++k) dJ[i][k] = dT[i][0] * VS_MAT(V, k, 0) + dT[i][1] * VS_MAT(V, k, 1) + dT[i][2] * VS_MAT(V, k, 2);
+
+    // dL/d(t) through J00 = fx/tz, J02 = -fx tx/tz^2, J11 = fy/tz, J12 = -fy ty/tz^2 and the clamp
+    float dt[3] = {0.f, 0.f, 0.f};
+    if (!clamp_x) dt[0] += dJ[0][2] * (-focal_x * iz2);
+    if (!clamp_y) dt[1] += dJ[1][2] * (-focal_y * iz2);
+    float dtz = dJ[0][0] * (-focal_x * iz2) + dJ[1][1] * (-focal_y * iz2);
+    dtz += dJ[0][2] * (2.f * focal_x * tx * iz3 + (clamp_x ? (-focal_x * iz2) * sgn_x * limx : 0.f));
+    dtz += dJ[1][2] * (2.f * focal_y * ty * iz3 + (clamp_y ? (-focal_y * iz2) * sgn_y * limy : 0.f));
+    dt[2] += dtz;
+
+    // ---- dL/dmean3d from the view-space path and from mean2d --------------------------------------
+    float dm[3];
+    for (int c = 0; c < 3; ++c) dm[c] = VS_MAT(V, 0, c) * dt[0] + VS_MAT(V, 1, c) * dt[1] + VS_MAT(V, 2, c) * dt[2];
+
+    const float px = VS_MAT(P, 0, 0) * m[0] + VS_MAT(P, 0, 1) * m[1] + VS_MAT(P, 0, 2) * m[2] + VS_MAT(P, 0, 3);
+    const float py = VS_MAT(P, 1, 0) * m[0] + VS_MAT(P, 1, 1) * m[1] + VS_MAT(P, 1, 2) * m[2] + VS_MAT(P, 1, 3);
+    const float pw = VS_MAT(P, 3, 0) * m[0] + VS_MAT(P, 3, 1) * m[1] + VS_MAT(P, 3, 2) * m[2] + VS_MAT(P, 3, 3);
+    const float ipw = 1.f / pw;
+    const float gx = grad_means2d[idx * 2 + 0], gy = grad_means2d[idx * 2 + 1];
+    const float dpx = gx * W * 0.5f * ipw;
+    const float dpy = gy * H * 0.5f * ipw;
+    const float dpw = -(gx * W * 0.5f * px + gy * H * 0.5f * py) * ipw * ipw;
+    for (int c = 0; c < 3; ++c) dm[c] += VS_MAT(P, 0, c) * dpx + VS_MAT(P, 1, c) * dpy + VS_MAT(P, 3, c) * dpw;
+
+    grad_means3d[idx * 3 + 0] = dm[0];
+    grad_means3d[idx * 3 + 1] = dm[1];
+    grad_means3d[idx * 3 + 2] = dm[2];
 }

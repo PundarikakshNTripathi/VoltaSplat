@@ -1,234 +1,134 @@
 # VoltaSplat: Differentiable CUDA Rasterizer for 3D Gaussian Splatting
 
-![CUDA](https://img.shields.io/badge/CUDA-12.4-76B900?style=for-the-badge&logo=nvidia)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.2-EE4C2C?style=for-the-badge&logo=pytorch)
-![C++20](https://img.shields.io/badge/C++-20-00599C?style=for-the-badge&logo=c%2B%2B)
-![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python)
-![License](https://img.shields.io/badge/License-Elastic_2.0-blue?style=for-the-badge)
+![CUDA](https://img.shields.io/badge/CUDA-sm__80%2B-76B900?style=flat-square&logo=nvidia) ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=flat-square&logo=pytorch) ![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat-square&logo=c%2B%2B) ![License](https://img.shields.io/badge/License-Elastic_2.0-blue?style=flat-square)
 
-VoltaSplat is a from-scratch, differentiable CUDA rasterization engine for 3D Gaussian Splatting. It hooks into PyTorch via custom C++ ATen bindings, implementing custom forward/backward kernels, tile-based radix sorting, and hardware-accelerated alpha compositing for real-time volumetric scene synthesis.
+VoltaSplat is a from-scratch, tile-based, differentiable rasterizer for 3D Gaussian Splatting written in CUDA/C++ and exposed to PyTorch as an `autograd.Function`. Given N 3D Gaussians (mean, covariance, color, opacity) and a pinhole camera it renders an image, and given a gradient on the image it returns gradients for **all four per-Gaussian parameter tensors**, including the 3D means and 3D covariances, through the projection.
 
-**License Declaration**: This repository is distributed under the Elastic License 2.0. See [Licensing Terms](#licensing-terms) for details.
+* **Forward:** EWA projection of 3D covariances with the first-order (Jacobian) approximation, 3-sigma screen bounds, **one sort key per overlapped 16x16 tile** (`tile << 32 | depth`), a CUB radix sort, per-tile ranges, and a front-to-back alpha-compositing kernel that stages 256 Gaussians at a time in shared memory with early termination.
+* **Backward:** reverse-order compositing gradients with `atomicAdd`, then an analytic chain through the projection (conic inverse, `T = J W`, the frustum clamp, the viewport transform) to `means3d` and `cov3d`.
+* **Verified against an independent implementation:** a pure-PyTorch reference renderer reproduces the CUDA image to ~1e-7 and the CUDA gradients to ~1e-6 relative error; the reference's own gradients are checked against float64 finite differences.
 
----
+![VoltaSplat pipeline](docs/assets/architecture.png)
 
-## Navigation
-1. [Project Background](#project-background)
-2. [Macro Architecture](#macro-architecture)
-3. [Theoretical Foundations & Methodology](#theoretical-foundations--methodology)
-4. [Engine Architecture & Memory Flow](#engine-architecture--memory-flow)
-5. [Codebase Organization](#codebase-organization)
-6. [Technology Stack](#technology-stack)
-7. [Infrastructure, DevOps & CI/CD Pipelines](#infrastructure-devops--cicd-pipelines)
-8. [Installation & Execution Guide](#installation--execution-guide)
-9. [Quantitative Benchmarks](#quantitative-benchmarks)
-10. [Current Development Status](#current-development-status)
-11. [Architectural Bottlenecks & Future Scope](#architectural-bottlenecks--future-scope)
-12. [Debugging & Troubleshooting](#debugging--troubleshooting)
-13. [Support & Maintenance Protocols](#support--maintenance-protocols)
-14. [How to Contribute](#how-to-contribute)
-15. [Licensing Terms](#licensing-terms)
-16. [Academic Citations](#academic-citations)
+## Contents
+1. [Results](#1-results) 2. [Method](#2-method) 3. [Correctness evidence](#3-correctness-evidence) 4. [API](#4-api) 5. [Repository structure](#5-repository-structure) 6. [Build, test, benchmark](#6-build-test-benchmark) 7. [Limitations and future work](#7-limitations-and-future-work) 8. [License and citation](#8-license-and-citation)
 
----
+## 1. Results
 
-## Project Background
-VoltaSplat implements the core rasterization pipeline required for 3D Gaussian Splatting. Deep learning frameworks like PyTorch handle tensor operations and auto-differentiation well, but struggle with scattered memory access patterns and hardware-specific synchronization required for spatial rendering.
-
-This project offloads geometry projection, sorting, and pixel-level alpha compositing to custom CUDA kernels, while calculating analytical gradients in a custom backward pass to integrate with PyTorch's autograd system.
-
----
-
-## Macro Architecture
-Rather than rendering polygonal meshes, VoltaSplat uses continuous spatial probability distributions (3D Gaussians). 
-
-To render overlapping transparent ellipsoids efficiently, the engine:
-1. Projects 3D Gaussians into 2D screen space.
-2. Sorts them by depth using a 64-bit Radix Sort algorithm (via NVIDIA CUB).
-3. Groups the image into 16x16 pixel tiles.
-4. Executes a tile-based alpha-compositing kernel that resolves the volumetric integration in parallel.
-
----
-
-## Theoretical Foundations & Methodology
-
-### The Jacobian Projection Approximation
-A 3D Gaussian is parameterized by its mean vector $\mu \in \mathbb{R}^3$ and its covariance matrix $\Sigma \in \mathbb{R}^{3 \times 3}$. To project this into 2D screen space, we use a first-order Taylor series approximation (Jacobian $J$) of the perspective transformation. Given a view matrix $W$, the 2D covariance $\Sigma'$ is:
-
-```math
-\Sigma' = J W \Sigma W^T J^T
-```
-
-### Volumetric Alpha Compositing
-The opacity $\alpha_i$ of the $i$-th Gaussian at pixel coordinate $x$ is:
-
-```math
-\alpha_i = o_i \exp \left( -\frac{1}{2} (x - \mu_i')^T (\Sigma_i')^{-1} (x - \mu_i') \right)
-```
-where $o_i$ is the base opacity and $(\Sigma_i')^{-1}$ is the inverse 2D covariance. The final pixel color $C$ is evaluated front-to-back:
-
-```math
-C = \sum_{i=1}^{N} c_i \alpha_i T_i \quad \text{where} \quad T_i = \prod_{j=1}^{i-1} (1 - \alpha_j)
-```
-
-### Backpropagation
-To train the Gaussians, we compute partial derivatives of the final color with respect to the input variables. The derivative with respect to $\alpha_i$ requires reversing the compositing sequence:
-
-```math
-\frac{\partial L}{\partial \alpha_i} = \frac{\partial L}{\partial C} \left( c_i T_i - \frac{1}{1 - \alpha_i} \sum_{j=i+1}^N c_j \alpha_j T_j \right)
-```
-
----
-
-## Engine Architecture & Memory Flow
-
-<div align="center">
-  <img src="docs/architecture.svg" alt="VoltaSplat Memory Flow & Architecture Diagram" width="100%" />
-</div>
-
-- **Tile-based Processing**: The screen is segmented into 16x16 pixel tiles mapping to individual CUDA thread blocks.
-- **Shared Memory**: Threads collaboratively load Gaussian attributes into `__shared__` memory prior to blending.
-- **Backward Gradients**: The backward pass utilizes `atomicAdd` to accumulate gradients to global 3D variables, preventing race conditions from concurrent pixel threads.
-
----
-
-## Codebase Organization
-
-```text
-VoltaSplat/
-├── benchmarks/              # Profiling scripts and visualization logic
-├── csrc/                    # C++ and CUDA source code
-│   ├── include/             # C++ headers (camera.cuh, gaussian.cuh, utils.cuh)
-│   ├── backward.cu          # Autograd chain rule and atomic accumulation
-│   ├── bindings.cpp         # PyBind11 ABI hooks
-│   ├── forward.cu           # Geometry projection and alpha-blending
-│   └── rasterizer.cu        # ATen dispatcher for kernel launches
-├── docker/                  # Local containerization environments
-├── tests/                   # PyTest integration and boundary checks
-├── voltasplat/              # Python user-facing package API
-├── .github/workflows/       # CI/CD GitHub Actions
-├── Makefile                 # Build and test automation
-└── pyproject.toml           # PEP 517 build configuration (uv)
-```
-
----
-
-## Technology Stack
-- **Deep Learning Subsystem**: PyTorch 2.2+, ATen C++ API
-- **Compute Backend**: CUDA 12.4, C++20, CUB
-- **Interface Bindings**: PyBind11
-- **Build Ecosystem**: uv, Setuptools, Ninja
-- **Analytics & Validation**: Matplotlib, PyTest
-- **Virtualization & Automation**: Docker, GitHub Actions
-
----
-
-## Infrastructure, DevOps & CI/CD Pipelines
-- **Virtual Environment**: Managed via `uv` for deterministic dependency resolution.
-- **Docker Isolation**: `docker-compose up` provisions an isolated PyTorch container environment.
-- **Continuous Integration (CI)**: `.github/workflows/build_and_test.yml` executes `uv venv`, kernel compilation, and syntax validation on PRs. Note: Currently using standard GitHub Ubuntu runners; future transition to self-hosted NVIDIA GPU runners is planned for hardware testing.
-- **Continuous Deployment (CD)**: `.github/workflows/cd.yml` triggers automated `twine` publishing on GitHub Releases or `workflow_dispatch`.
-
----
-
-## Installation & Execution Guide
-
-**Requirements**: Windows 11 / Linux (Ubuntu 22.04+), CUDA Toolkit 12.0+, Python 3.11+.
-
-1. **Automated Setup (Makefile)**:
-   ```bash
-   make all
-   ```
-
-2. **Manual Setup**:
-   ```bash
-   uv venv
-   # Activate virtual environment
-   uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-   uv pip install -e . --no-build-isolation
-   pytest tests/
-   python benchmarks/run_benchmarks.py
-   ```
-
----
-
-## Quantitative Benchmarks
-
+### Render and gradient cost (measured)
 <!-- BENCHMARK_START -->
+Measured on NVIDIA GeForce RTX 5060 Laptop GPU (torch 2.11.0+cu128, CUDA 12.8), 800x800 output, median of CUDA-event timings; scenes of random Gaussians with 1.5-5 px screen-space sigma.
 
-| Metric | Value |
-|--------|-------|
-| Target Resolution | 800x800 |
-| Peak Throughput | 476.2 FPS (100k points) |
-| Forward (1M pts) | 16.2 ms |
-| Backward (1M pts) | 45.3 ms |
-| Max VRAM (1M pts) | 950.5 MB |
-
-**Testing Hardware:**
-- **CPU**: Intel(R) Core(TM) i9-13900HX
-- **GPU**: NVIDIA GeForce RTX 5060 Laptop GPU
-
-### Visualizations
-
-<div align="center">
-  <img src="benchmarks/images/performance_scaling.png" width="48%" />
-  <img src="benchmarks/images/memory_scaling.png" width="48%" />
-</div>
-
+| Gaussians | forward (ms) | forward FPS | forward+backward (ms) | peak extra GPU memory (MB) | Gaussian-tile pairs |
+|---:|---:|---:|---:|---:|---:|
+| 10,000 | 0.58 | 1716 | 2.79 | 14 | 68,825 |
+| 50,000 | 1.05 | 953 | 8.32 | 22 | 343,731 |
+| 100,000 | 1.63 | 612 | 14.65 | 34 | 688,575 |
+| 500,000 | 3.87 | 258 | 21.95 | 173 | 3,441,517 |
+| 1,000,000 | 6.08 | 164 | 27.25 | 340 | 6,874,036 |
 <!-- BENCHMARK_END -->
 
----
+![Time vs scene size](benchmarks/images/performance_scaling.png)
+![Memory vs scene size](benchmarks/images/memory_scaling.png)
 
-## Current Development Status
-The core rasterization pipeline is functional, serving as a custom PyTorch layer. Forward projection, frustum culling, and tile-based rasterization via CUB radix sort are implemented. The backward pass correctly calculates analytical derivatives and propagates them to the PyTorch autograd graph.
+All numbers come from `benchmarks/run_benchmarks.py` (CUDA events, median of 20 runs after warm-up, `torch.cuda.max_memory_allocated`); nothing is hard-coded. They are for random scenes whose Gaussians project to 1.5-5 px sigma, i.e. the regime of a trained 3DGS model. They have **not** been compared with `gsplat` or the original `diff-gaussian-rasterization`, so no relative claim is made.
 
----
+### Fitting a target image (end to end)
+`examples/fit_image.py` optimises 4,000 Gaussians (free 3D position, anisotropic scale, rotation, color, opacity) to a procedurally generated 256x256 image with Adam on the standard 3DGS loss `0.8 L1 + 0.2 (1 - SSIM)`:
 
-## Architectural Bottlenecks & Future Scope
-- **Spherical Harmonics (SH)**: Implementing SH evaluation directly in the CUDA kernels for view-dependent lighting.
-- **Half-Precision (FP16/BF16)**: Moving memory-heavy kernel arguments to Half Precision to improve memory throughput.
-- **Tile-based Culling**: Implementing aggressive early-ray-termination heuristics when accumulated opacity exceeds `0.999`.
-- **Adaptive Gaussian Densification**: Automated heuristic algorithms to clone, split, and prune Gaussians based on spatial gradients.
+| Step | PSNR | SSIM |
+|---:|---:|---:|
+| 0 | 11.0 dB | 0.249 |
+| 800 | **31.2 dB** | **0.979** |
 
----
+(46 ms per optimisation step on an RTX 5060 Laptop GPU, including SSIM and Adam.) The run exists to show that gradients to positions, scales, rotations, colors and opacities are all useful, which is what the means/covariance backward pass provides.
 
-## Debugging & Troubleshooting
+## 2. Method
 
-**1. "RuntimeError: CUDA error: no kernel image is available for execution on the device"**
-Check `setup.py` and ensure the `TORCH_CUDA_ARCH_LIST` matches your hardware (e.g., `8.6`, `9.0+PTX`).
+**Projection.** For a Gaussian with view-space mean `t = R m + b` and covariance `S`, the 2D covariance is `Sigma' = J R S R^T J^T` (top-left 2x2) with `J = [[fx/tz, 0, -fx tx/tz^2], [0, fy/tz, -fy ty/tz^2]]`. `tx/tz` and `ty/tz` are clamped to 1.3x the field of view before linearising, and 0.3 is added to the diagonal (a one-pixel low-pass filter). The conic is `Sigma'^{-1}`; the radius is `ceil(3 sqrt(lambda_max))`.
 
-**2. MSVC Compilation Failures on Windows**
-Pass the `/Zc:preprocessor` flag in `setup.py` to resolve variadic macro errors during MSVC compilation.
+**Tile binning.** The bounding square of every visible Gaussian is converted into a rectangle of 16x16 tiles; an inclusive scan of per-Gaussian tile counts sizes one global key/value list, `duplicate_with_keys` writes one `(tile << 32 | depth bits)` key per overlapped tile (positive floats sort like integers), CUB sorts only the bits that matter, and `identify_tile_ranges` records `[start, end)` per tile.
 
-**3. Missing "c10_cuda.lib" Linker Errors**
-Ensure the build environment is isolated by using `uv pip install -e . --no-build-isolation`.
+**Compositing.** One 16x16 thread block per tile loads batches of 256 Gaussians into shared memory and every pixel evaluates `alpha = min(0.99, o exp(-0.5 d^T Q d))`, skipping `alpha < 1/255`, accumulating `C += alpha T c`, `T *= 1 - alpha`, and stopping *before* the Gaussian that would push `T` below 1e-4. A block stops once all of its pixels are saturated.
 
----
+**Backward.** Per pixel, walking from the last contributor back to the first, the transmittance is recovered as `T = T / (1 - alpha)`, giving `dC/dalpha_i = c_i T_i - (sum of colour behind i) / (1 - alpha_i)`; gradients w.r.t. opacity, conic and 2D mean follow, with no gradient through a clamped `alpha`. A second kernel maps `dL/dconic` and `dL/dmean2D` to `dL/dcov3D` and `dL/dmean3D`: `dSigma' = -Q (dL/dQ) Q`, `dS = sum_ij dSigma'_ij T_i^T T_j`, `dT_i = 2 sum_j dSigma'_ij S T_j^T`, `dJ = dT W^T`, and then through `J`'s dependence on the view-space position, including the case where the frustum clamp is active. See `docs/MATH_SPEC.md` for the long form.
 
-## How to Contribute
-Review [CONTRIBUTING.md](CONTRIBUTING.md) for C++20 conventions. Use a Git Flow paradigm (branch from `develop`, submit PRs to `develop`). Execute `make test` locally before requesting reviews.
+## 3. Correctness evidence
 
----
+| Check | Where | Result |
+|---|---|---|
+| CUDA image vs PyTorch reference renderer (24 / 60 / 150 Gaussians, ragged 80x64 image, camera with rotation + translation, Gaussians spanning many tiles, Gaussians behind the camera) | `tests/test_rasterizer.py` | max abs difference < 1e-5 (observed ~2e-7) |
+| CUDA gradients vs autograd of the reference, for `means3d`, `cov3d`, `colors`, `opacities` | same | relative error < 1e-4 (observed ~1e-6) |
+| Reference gradients vs float64 finite differences (`torch.autograd.gradcheck`) | `tests/test_reference_gradcheck.py` (CPU-only) | passes |
+| A single large Gaussian is drawn in every tile it overlaps | `test_large_gaussian_spans_tiles` | >= 9 tiles lit |
+| Culled Gaussians get exactly zero gradient; empty and fully-culled scenes render black | `test_culled_...`, `test_empty_...` | passes |
+| Optimisation reduces loss through all four parameter tensors | `test_fitting_reduces_loss`, `examples/fit_image.py` | loss falls > 40%; 11 -> 31 dB |
 
-## Licensing Terms
-Licensed under the **Elastic License 2.0**. 
-- You may modify, build upon, distribute, and execute the software internally for almost all standard operations.
-- You may not fork this software and offer it to third parties as a managed, hosted API service.
-- You must preserve all original copyright notices.
-- The software is provided "as is" with no liability or warranty.
+The reference (`voltasplat/reference.py`) is deliberately independent: dense per-pixel tensor operations in depth order, no tiles, no CUDA.
 
-See [LICENSE](LICENSE) for full details.
+## 4. API
 
----
+```python
+import torch, math
+from voltasplat.cameras import Camera
+from voltasplat.modules import rasterize
+from voltasplat.gaussians import build_cov3d          # covariance from log-scales + quaternions
 
-## Academic Citations
-If VoltaSplat powers your academic research, please cite:
+cam = Camera(R=torch.eye(3), T=torch.zeros(3), fovX=math.radians(60), fovY=math.radians(60), width=800, height=800)
+means = torch.randn(10_000, 3, device="cuda") * 0.5; means[:, 2] += 4
+cov   = build_cov3d(torch.full((10_000, 3), -4.0, device="cuda"), torch.randn(10_000, 4, device="cuda"))
+color = torch.rand(10_000, 3, device="cuda"); opac = torch.rand(10_000, device="cuda")
+for t in (means, cov, color, opac): t.requires_grad_(True)
+
+img = rasterize(means, cov, color, opac, cam.viewmatrix, cam.projmatrix,
+                cam.focal_x, cam.focal_y, cam.tan_fovx, cam.tan_fovy, 800, 800)   # (H, W, 3) float32
+img.sum().backward()                                 # grads for means, cov, color, opac
+```
+Matrices are ordinary row-major tensors (world->view and world->clip); the wrapper transposes them for the kernels. The camera is treated as constant (no pose gradients).
+
+## 5. Repository structure
+```text
+csrc/
+  forward.cu        EWA preprocess kernel + tile compositing kernel
+  sort.cu           duplicate-with-keys, tile-range kernels
+  backward.cu       compositing backward + projection backward
+  launch.cu         launchers and CUB radix sort (no torch headers: builds with any nvcc/host pairing)
+  rasterizer.cpp    torch-facing orchestration on the current CUDA stream
+voltasplat/         modules (autograd), cameras, gaussians, losses (SSIM), reference renderer
+tests/              CUDA-vs-reference, gradcheck, edge cases, fitting
+benchmarks/         run_benchmarks.py (regenerates the table and charts above)
+examples/           fit_image.py
+docs/               MATH_SPEC.md, assets/architecture.{png,excalidraw}
+.github/workflows/  CI: CPU gradcheck + CUDA compile check (Ampere..Blackwell)
+```
+
+## 6. Build, test, benchmark
+Requires an NVIDIA GPU (sm_80+), CUDA toolkit, a C++17 compiler and PyTorch with CUDA. Blackwell (sm_120) needs the CUDA 12.8 PyTorch wheels.
+
+```bash
+make setup        # uv venv + PyTorch (TORCH_INDEX=cu128 by default) + test deps
+make build        # compile the extension in place (targets the GPU that is present)
+make test         # CUDA vs reference, gradcheck, fitting
+make benchmark    # measure, redraw charts, update the table above
+make example      # fit_image.py
+```
+On Windows run from an x64 Native Tools prompt. CI (`.github/workflows/build_and_test.yml`) runs the GPU-free gradcheck and compiles the extension for sm_80..sm_120 inside an nvcc container; the CUDA-vs-reference tests need a GPU and are run locally.
+
+## 7. Limitations and future work
+* No spherical harmonics (colors are per-Gaussian RGB), no adaptive densification/pruning, no pose or intrinsics gradients.
+* float32 only; the number of (Gaussian, tile) pairs must stay below 2^31.
+* Compositing and backward are straightforward (one thread per pixel, global `atomicAdd` for gradients); warp-level gradient reduction and a fused backward would reduce atomic pressure.
+* Performance has not been compared with other implementations.
+
+## 8. License and citation
+Elastic License 2.0 (see `LICENSE`): you may use and modify the software, but not offer it to third parties as a hosted or managed service.
 
 ```bibtex
 @software{voltasplat2026,
-  author = {Tripathi, Pundarikaksh N. and VoltaSplat Contributors},
-  title = {VoltaSplat: Sub-millisecond 3D Gaussian Splatting Engine},
-  year = {2026},
-  url = {https://github.com/PundarikakshNTripathi/VoltaSplat}
+  author = {Tripathi, Pundarikaksh N.},
+  title  = {VoltaSplat: A Differentiable CUDA Rasterizer for 3D Gaussian Splatting},
+  year   = {2026},
+  url    = {https://github.com/PundarikakshNTripathi/VoltaSplat}
 }
 ```
+Based on Kerbl et al., *3D Gaussian Splatting for Real-Time Radiance Field Rendering* (SIGGRAPH 2023) and Zwicker et al., *EWA Volume Splatting* (2001).

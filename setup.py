@@ -1,56 +1,58 @@
+import glob
 import os
 import platform
-import glob
-from setuptools import setup
+
 import torch
 import torch.utils.cpp_extension
+from setuptools import setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-# Set target CUDA architectures
-os.environ["TORCH_CUDA_ARCH_LIST"] = "8.6;9.0+PTX"
 
-# Cross-platform specific configurations
+def cuda_arch_list() -> str:
+    """Target the GPU that is present; otherwise a portable Ampere..Hopper list with PTX for forward compatibility.
+
+    Override with TORCH_CUDA_ARCH_LIST (e.g. "8.6;12.0")."""
+    if os.environ.get("TORCH_CUDA_ARCH_LIST"):
+        return os.environ["TORCH_CUDA_ARCH_LIST"]
+    if torch.cuda.is_available():
+        major, minor = torch.cuda.get_device_capability(0)
+        return f"{major}.{minor}"
+    return "8.0;8.6;8.9;9.0+PTX"
+
+
+os.environ["TORCH_CUDA_ARCH_LIST"] = cuda_arch_list()
+
 is_windows = platform.system() == "Windows"
 
 if is_windows:
-    # Use user's specific CUDA path for their Windows machine if available
-    cuda_dir = os.environ.get("CUDA_PATH", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3")
-    if os.path.exists(cuda_dir):
-        os.environ["CUDA_HOME"] = cuda_dir
-        os.environ["CUDA_PATH"] = cuda_dir
-        os.environ["NVCC"] = os.path.join(cuda_dir, "bin", "nvcc.exe")
-        torch.utils.cpp_extension.CUDA_HOME = cuda_dir
+    # A CUDA toolkit newer than the one PyTorch was built with is fine for this extension
+    # (it only uses stable runtime APIs), so skip torch's strict version equality check.
     torch.utils.cpp_extension._check_cuda_version = lambda *args, **kwargs: None
-    
-    # MSVC specific compiler arguments
     extra_compile_args = {
-        'cxx': ['/O2', '/std:c++20', '/Zc:preprocessor'],
-        'nvcc': ['-O3', '-std=c++20', '-Xcompiler', '/Zc:preprocessor']
+        "cxx": ["/O2", "/std:c++17", "/Zc:preprocessor"],
+        "nvcc": ["-O3", "-std=c++17", "-Xcompiler", "/Zc:preprocessor"],
     }
 else:
-    # Linux (GCC) standard compiler arguments
     extra_compile_args = {
-        'cxx': ['-O3', '-std=c++20'],
-        'nvcc': ['-O3', '-std=c++20']
+        "cxx": ["-O3", "-std=c++17"],
+        "nvcc": ["-O3", "-std=c++17"],
     }
 
-# Get all cpp and cu files in csrc
-csrc_dir = os.path.join(os.path.dirname(__file__), 'csrc')
-src_files = glob.glob(os.path.join(csrc_dir, '*.cpp')) + glob.glob(os.path.join(csrc_dir, '*.cu'))
+csrc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "csrc")
+src_files = sorted(glob.glob(os.path.join(csrc_dir, "*.cpp")) + glob.glob(os.path.join(csrc_dir, "*.cu")))
 
 setup(
-    name='voltasplat',
-    version='0.1.0',
-    description='Differentiable CUDA Rasterizer for 3D Gaussian Splatting',
+    name="voltasplat",
+    version="0.1.0",
+    description="Differentiable CUDA rasterizer for 3D Gaussian Splatting",
+    packages=["voltasplat"],
     ext_modules=[
         CUDAExtension(
-            name='voltasplat._C',
+            name="voltasplat._C",
             sources=src_files,
-            include_dirs=[os.path.join(csrc_dir, 'include')],
-            extra_compile_args=extra_compile_args
+            include_dirs=[os.path.join(csrc_dir, "include")],
+            extra_compile_args=extra_compile_args,
         )
     ],
-    cmdclass={
-        'build_ext': BuildExtension
-    }
+    cmdclass={"build_ext": BuildExtension},
 )

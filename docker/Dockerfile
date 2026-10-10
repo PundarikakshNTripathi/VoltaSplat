@@ -1,24 +1,20 @@
-FROM pytorch/pytorch:2.2.1-cuda12.1-cudnn8-devel
+FROM nvidia/cuda:12.8.1-devel-ubuntu22.04
 
-# Install essential build tools
-RUN apt-get update && apt-get install -y \
-    git \
-    ninja-build \
-    build-essential \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-dev python3-pip build-essential ninja-build git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for fast Python dependency management
-RUN pip install uv
+# CUDA 12.8 wheels include Blackwell (sm_120) kernels; Ampere..Hopper are covered too.
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && python3 -m pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu128 \
+    && python3 -m pip install --no-cache-dir pytest numpy matplotlib ninja
 
-# Set the working directory
 WORKDIR /app
-
-# Copy the project files
 COPY . .
 
-# Install dependencies and build the CUDA extension
-RUN uv pip install --system pytest
-RUN uv pip install --system -e . --no-build-isolation
+# Compile for the common data-centre / desktop architectures (override with --build-arg for a single GPU).
+ARG TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
+ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+RUN python3 -m pip install --no-cache-dir -e . --no-build-isolation
 
-# Default command
-CMD ["pytest", "tests/"]
+CMD ["python3", "-m", "pytest", "tests", "-v"]
