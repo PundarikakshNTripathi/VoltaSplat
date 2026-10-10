@@ -39,7 +39,8 @@ else:
     }
 
 csrc_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "csrc")
-src_files = sorted(glob.glob(os.path.join(csrc_dir, "*.cpp")) + glob.glob(os.path.join(csrc_dir, "*.cu")))
+# setuptools rejects absolute source paths (editable installs), so list sources relative to this file
+src_files = sorted(os.path.relpath(f) for f in glob.glob(os.path.join(csrc_dir, "*.cpp")) + glob.glob(os.path.join(csrc_dir, "*.cu")))
 
 setup(
     name="voltasplat",
